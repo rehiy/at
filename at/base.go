@@ -112,7 +112,7 @@ func (m *Device) Close() error {
 // SendCommand 发送 AT 命令并等待响应
 func (m *Device) SendCommand(command string) ([]string, error) {
 	if m.isClosed.Load() {
-		return nil, ErrDeviceClosed
+		return nil, fmt.Errorf("device is closed")
 	}
 
 	// 添加回车换行符并写入命令
@@ -143,7 +143,7 @@ func (m *Device) SendCommandExpect(command string, expected string) error {
 // ListenNotifications 注册 modem 通知处理器
 func (m *Device) ListenNotifications(handler NotificationHandler) (error, context.CancelFunc) {
 	if m.isClosed.Load() {
-		return ErrDeviceClosed, nil
+		return fmt.Errorf("device is closed"), nil
 	}
 
 	// 注册通知处理器
@@ -210,7 +210,7 @@ func (m *Device) readLoop() {
 // writeString 写入数据到串口
 func (m *Device) writeString(data string) error {
 	if m.isClosed.Load() {
-		return ErrDeviceClosed
+		return fmt.Errorf("device is closed")
 	}
 
 	// 防止并发写

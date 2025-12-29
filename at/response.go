@@ -1,31 +1,9 @@
 package at
 
 import (
-	"errors"
+	"fmt"
 	"strings"
 	"time"
-)
-
-// 错误定义
-var (
-	// 连接相关错误
-	ErrDeviceClosed      = errors.New("device is closed")
-	ErrPortNotAvailable  = errors.New("serial port not available")
-	ErrInvalidPortConfig = errors.New("invalid port configuration")
-
-	// 命令相关错误
-	ErrCommandTimeout     = errors.New("command timeout")
-	ErrInvalidCommand     = errors.New("invalid AT command")
-	ErrUnexpectedResponse = errors.New("unexpected response from modem")
-
-	// 响应相关错误
-	ErrNoResponse    = errors.New("no response from modem")
-	ErrResponseParse = errors.New("failed to parse response")
-	ErrResponseError = errors.New("modem returned error response")
-
-	// 通知相关错误
-	ErrNotificationFailed = errors.New("notification listening failed")
-	ErrHandlerNotSet      = errors.New("notification handler not set")
 )
 
 // ResponseSet 定义可配置的命令响应类型集合
@@ -114,7 +92,7 @@ func (m *Device) readResponse() ([]string, error) {
 		select {
 		case line, ok := <-m.responseChan:
 			if !ok {
-				return responses, ErrDeviceClosed
+				return responses, fmt.Errorf("device is closed")
 			}
 
 			responses = append(responses, line)
@@ -123,7 +101,7 @@ func (m *Device) readResponse() ([]string, error) {
 			}
 
 		case <-timeout:
-			return responses, ErrCommandTimeout
+			return responses, fmt.Errorf("command timeout")
 		}
 	}
 }
