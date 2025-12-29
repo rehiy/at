@@ -87,105 +87,11 @@ func DefaultCommandSet() CommandSet {
 	}
 }
 
+// ===== 基本命令 =====
+
 // Test 测试连接
 func (m *Connection) Test(ctx context.Context) error {
 	return m.SendCommandExpect(ctx, m.commands.Test, "OK")
-}
-
-// GetManufacturer 查询制造商信息
-func (m *Connection) GetManufacturer(ctx context.Context) (string, error) {
-	responses, err := m.SendCommand(ctx, m.commands.Manufacturer)
-	if err != nil {
-		return "", err
-	}
-
-	// 查找制造商信息行（不以AT开头的行）
-	for _, resp := range responses {
-		if !strings.HasPrefix(resp, "AT") {
-			return strings.TrimSpace(resp), nil
-		}
-	}
-
-	return "", fmt.Errorf("no manufacturer info found")
-}
-
-// GetModel 查询型号信息
-func (m *Connection) GetModel(ctx context.Context) (string, error) {
-	responses, err := m.SendCommand(ctx, m.commands.Model)
-	if err != nil {
-		return "", err
-	}
-
-	// 查找型号信息行（不以AT开头的行）
-	for _, resp := range responses {
-		if !strings.HasPrefix(resp, "AT") {
-			return strings.TrimSpace(resp), nil
-		}
-	}
-
-	return "", fmt.Errorf("no model info found")
-}
-
-// GetSignalQuality 查询信号质量
-func (m *Connection) GetSignalQuality(ctx context.Context) (int, int, error) {
-	responses, err := m.SendCommand(ctx, m.commands.SignalQuality)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	for _, resp := range responses {
-		if strings.HasPrefix(resp, "+CSQ:") {
-			parts := strings.Split(strings.TrimPrefix(resp, "+CSQ:"), ",")
-			if len(parts) >= 2 {
-				rssi := parseInt(parts[0])
-				ber := parseInt(parts[1])
-				return rssi, ber, nil
-			}
-		}
-	}
-
-	return 0, 0, fmt.Errorf("failed to parse signal quality")
-}
-
-// GetNetworkStatus 查询网络注册状态
-func (m *Connection) GetNetworkStatus(ctx context.Context) (int, int, error) {
-	responses, err := m.SendCommand(ctx, m.commands.NetworkRegistration+"?")
-	if err != nil {
-		return 0, 0, err
-	}
-
-	for _, resp := range responses {
-		if strings.HasPrefix(resp, "+CREG:") {
-			parts := strings.Split(strings.TrimPrefix(resp, "+CREG:"), ",")
-			if len(parts) >= 2 {
-				n := parseInt(parts[0])
-				stat := parseInt(parts[1])
-				return n, stat, nil
-			}
-		}
-	}
-
-	return 0, 0, fmt.Errorf("failed to parse network status")
-}
-
-// Dial 拨打电话
-func (m *Connection) Dial(ctx context.Context, number string) error {
-	return m.SendCommandExpect(ctx, m.commands.Dial+number, "OK")
-}
-
-// Hangup 挂断电话
-func (m *Connection) Hangup(ctx context.Context) error {
-	return m.SendCommandExpect(ctx, m.commands.Hangup, "OK")
-}
-
-// Answer 接听电话
-func (m *Connection) Answer(ctx context.Context) error {
-	return m.SendCommandExpect(ctx, m.commands.Answer, "OK")
-}
-
-// Reset 重启模块
-func (m *Connection) Reset(ctx context.Context) error {
-	return m.SendCommandExpect(ctx, m.commands.Reset, "OK")
 }
 
 // EchoOff 关闭回显
@@ -197,6 +103,187 @@ func (m *Connection) EchoOff(ctx context.Context) error {
 func (m *Connection) EchoOn(ctx context.Context) error {
 	return m.SendCommandExpect(ctx, m.commands.EchoOn, "OK")
 }
+
+// Reset 重启模块
+func (m *Connection) Reset(ctx context.Context) error {
+	return m.SendCommandExpect(ctx, m.commands.Reset, "OK")
+}
+
+// FactoryReset 恢复出厂设置
+func (m *Connection) FactoryReset(ctx context.Context) error {
+	return m.SendCommandExpect(ctx, m.commands.FactoryReset, "OK")
+}
+
+// SaveSettings 保存设置
+func (m *Connection) SaveSettings(ctx context.Context) error {
+	return m.SendCommandExpect(ctx, m.commands.SaveSettings, "OK")
+}
+
+// ===== 信息查询 =====
+
+// querySimpleInfo 通用简单信息查询函数
+func (m *Connection) querySimpleInfo(ctx context.Context, command string) (string, error) {
+	responses, err := m.SendCommand(ctx, command)
+	if err != nil {
+		return "", err
+	}
+
+	// 查找信息行（不以AT开头的行）
+	for _, resp := range responses {
+		if !strings.HasPrefix(resp, "AT") {
+			return strings.TrimSpace(resp), nil
+		}
+	}
+
+	return "", fmt.Errorf("no info found for command: %s", command)
+}
+
+// GetManufacturer 查询制造商信息
+func (m *Connection) GetManufacturer(ctx context.Context) (string, error) {
+	return m.querySimpleInfo(ctx, m.commands.Manufacturer)
+}
+
+// GetModel 查询型号信息
+func (m *Connection) GetModel(ctx context.Context) (string, error) {
+	return m.querySimpleInfo(ctx, m.commands.Model)
+}
+
+// GetRevision 查询版本信息
+func (m *Connection) GetRevision(ctx context.Context) (string, error) {
+	return m.querySimpleInfo(ctx, m.commands.Revision)
+}
+
+// GetSerialNumber 查询序列号
+func (m *Connection) GetSerialNumber(ctx context.Context) (string, error) {
+	return m.querySimpleInfo(ctx, m.commands.SerialNumber)
+}
+
+// GetIMSI 查询IMSI信息
+func (m *Connection) GetIMSI(ctx context.Context) (string, error) {
+	return m.querySimpleInfo(ctx, m.commands.IMSI)
+}
+
+// GetICCID 查询ICCID信息
+func (m *Connection) GetICCID(ctx context.Context) (string, error) {
+	return m.querySimpleInfo(ctx, m.commands.ICCID)
+}
+
+// ===== 信号质量 =====
+
+// GetSignalQuality 查询信号质量
+func (m *Connection) GetSignalQuality(ctx context.Context) (int, int, error) {
+	responses, err := m.SendCommand(ctx, m.commands.SignalQuality)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	for _, resp := range responses {
+		if csqData, ok := strings.CutPrefix(resp, "+CSQ:"); ok {
+			parts := strings.Split(csqData, ",")
+			if len(parts) >= 2 {
+				rssi := parseInt(parts[0])
+				ber := parseInt(parts[1])
+				return rssi, ber, nil
+			}
+		}
+	}
+
+	return 0, 0, fmt.Errorf("failed to parse signal quality")
+}
+
+// ===== 网络注册 =====
+
+// GetNetworkStatus 查询网络注册状态
+func (m *Connection) GetNetworkStatus(ctx context.Context) (int, int, error) {
+	responses, err := m.SendCommand(ctx, m.commands.NetworkRegistration+"?")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	for _, resp := range responses {
+		if cregData, ok := strings.CutPrefix(resp, "+CREG:"); ok {
+			parts := strings.Split(cregData, ",")
+			if len(parts) >= 2 {
+				n := parseInt(parts[0])
+				stat := parseInt(parts[1])
+				return n, stat, nil
+			}
+		}
+	}
+
+	return 0, 0, fmt.Errorf("failed to parse network status")
+}
+
+// GetGPRSStatus 查询GPRS注册状态
+func (m *Connection) GetGPRSStatus(ctx context.Context) (int, int, error) {
+	responses, err := m.SendCommand(ctx, m.commands.GPRSRegistration+"?")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	for _, resp := range responses {
+		if cgregData, ok := strings.CutPrefix(resp, "+CGREG:"); ok {
+			parts := strings.Split(cgregData, ",")
+			if len(parts) >= 2 {
+				n := parseInt(parts[0])
+				stat := parseInt(parts[1])
+				return n, stat, nil
+			}
+		}
+	}
+
+	return 0, 0, fmt.Errorf("failed to parse GPRS status")
+}
+
+// ===== 通话相关 =====
+
+// Dial 拨打电话
+func (m *Connection) Dial(ctx context.Context, number string) error {
+	return m.SendCommandExpect(ctx, m.commands.Dial+number, "OK")
+}
+
+// Answer 接听电话
+func (m *Connection) Answer(ctx context.Context) error {
+	return m.SendCommandExpect(ctx, m.commands.Answer, "OK")
+}
+
+// Hangup 挂断电话
+func (m *Connection) Hangup(ctx context.Context) error {
+	return m.SendCommandExpect(ctx, m.commands.Hangup, "OK")
+}
+
+// GetCallerID 获取来电显示状态
+func (m *Connection) GetCallerID(ctx context.Context) (bool, error) {
+	responses, err := m.SendCommand(ctx, m.commands.CallerID+"?")
+	if err != nil {
+		return false, err
+	}
+
+	for _, resp := range responses {
+		if clipData, ok := strings.CutPrefix(resp, "+CLIP:"); ok {
+			parts := strings.Split(clipData, ",")
+			if len(parts) >= 1 {
+				status := parseInt(parts[0])
+				return status == 1, nil
+			}
+		}
+	}
+
+	return false, fmt.Errorf("failed to parse caller ID status")
+}
+
+// SetCallerID 设置来电显示
+func (m *Connection) SetCallerID(ctx context.Context, enable bool) error {
+	command := m.commands.CallerID
+	if enable {
+		command += "=1"
+	} else {
+		command += "=0"
+	}
+	return m.SendCommandExpect(ctx, command, "OK")
+}
+
+// ===== 辅助工具 =====
 
 // parseInt 解析整数
 func parseInt(s string) int {
