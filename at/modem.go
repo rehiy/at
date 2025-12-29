@@ -17,11 +17,9 @@ import (
 type Config struct {
 	PortName        string           // 串口名称，如 '/dev/ttyUSB0' 或 'COM3'
 	BaudRate        int              // 波特率，如 115200
-	DataBits        int              // 数据位，如 8
-	StopBits        int              // 停止位，如 1
-	Parity          string           // 校验位，如 'N'
 	ReadTimeout     time.Duration    // 读取超时时间
-	WriteTimeout    time.Duration    // 写入超时时间
+	Parity          byte             // 校验位，如 'N', 'E', 'O'
+	StopBits        byte             // 停止位，如 1, 2
 	CommandSet      *CommandSet      // 自定义 AT 命令集，如果为 nil 则使用默认命令集
 	NotificationSet *NotificationSet // 自定义通知类型集，如果为 nil 则使用默认通知集
 	ResponseSet     *ResponseSet     // 自定义响应类型集，如果为 nil 则使用默认响应集
@@ -50,6 +48,8 @@ func newConnection(config Config) (AT, error) {
 		Name:        config.PortName,
 		Baud:        config.BaudRate,
 		ReadTimeout: config.ReadTimeout,
+		Parity:      serial.Parity(config.Parity),
+		StopBits:    serial.StopBits(config.StopBits),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open serial port: %w", err)
@@ -115,16 +115,13 @@ func (m *Connection) readLoop() {
 			if m.isClosed.Load() {
 				return
 			}
-			// EOF或超时错误，继续监听
+			// EOF 表示连接已断开，应该退出循环
 			if err == io.EOF {
-				continue
+				_ = m.Close()
+				return
 			}
-			if strings.Contains(err.Error(), "timeout") {
-				continue
-			}
-			// 严重错误，关闭连接
-			_ = m.Close()
-			return
+			// 其他错误，继续监听
+			continue
 		}
 
 		line = strings.TrimSpace(line)
