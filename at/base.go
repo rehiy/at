@@ -2,7 +2,6 @@ package at
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"io"
 	"log"
@@ -16,41 +15,40 @@ import (
 
 // Modem 配置
 type Config struct {
-	PortName        string           // 串口名称，如 '/dev/ttyUSB0' 或 'COM3'
-	BaudRate        int              // 波特率，如 115200
-	ReadTimeout     time.Duration    // 读取超时时间
-	Parity          byte             // 校验位，如 'N', 'E', 'O'
-	StopBits        byte             // 停止位，如 1, 2
+	// 串口参数
+	PortName string        // 串口名称，如 '/dev/ttyUSB0' 或 'COM3'
+	BaudRate int           // 波特率，如 115200
+	Timeout  time.Duration // 超时时间
+	Parity   byte          // 校验位，如 'N', 'E', 'O'
+	StopBits byte          // 停止位，如 1, 2
+	// 设备参数
 	CommandSet      *CommandSet      // 自定义 AT 命令集，如果为 nil 则使用默认命令集
-	NotificationSet *NotificationSet // 自定义通知类型集，如果为 nil 则使用默认通知集
 	ResponseSet     *ResponseSet     // 自定义响应类型集，如果为 nil 则使用默认响应集
+	NotificationSet *NotificationSet // 自定义通知类型集，如果为 nil 则使用默认通知集
+	Notification    func(s string)   // 通知处理函数
 }
 
 // Modem 连接
 type Device struct {
-	port          *serial.Port
-	config        Config
+	port    *serial.Port  // 串口连接
+	timeout time.Duration // 超时时间
+
 	commands      CommandSet      // 使用的 AT 命令集
 	notifications NotificationSet // 使用的通知类型集
 	responses     ResponseSet     // 使用的响应类型集
-	isClosed      atomic.Bool     // 连接是否已关闭（原子操作保证并发安全）
 
-	// 统一读取相关字段
-	reader       *bufio.Reader       // 统一的读取器
-	responseChan chan string         // 命令响应通道
-	urcHandler   NotificationHandler // 通知处理函数
-	urcMu        sync.RWMutex        // 保护通知函数的读写锁
-	mu           sync.Mutex          // 保护命令发送的互斥锁
+	responseChan chan string    // 命令响应通道
+	urcHandler   func(s string) // 通知处理函数
+	isClosed     atomic.Bool    // 连接是否已关闭（原子操作保证并发安全）
+	mu           sync.Mutex     // 保护命令发送的互斥锁
 }
-
-type NotificationHandler func(notification string)
 
 // New 创建一个新的 AT 连接
 func New(config Config) (*Device, error) {
 	port, err := serial.OpenPort(&serial.Config{
 		Name:        config.PortName,
 		Baud:        config.BaudRate,
-		ReadTimeout: config.ReadTimeout,
+		ReadTimeout: config.Timeout,
 		Parity:      serial.Parity(config.Parity),
 		StopBits:    serial.StopBits(config.StopBits),
 	})
@@ -78,11 +76,10 @@ func New(config Config) (*Device, error) {
 
 	dev := &Device{
 		port:          port,
-		config:        config,
+		timeout:       config.Timeout + 100*time.Millisecond,
 		commands:      commands,
 		notifications: notifications,
 		responses:     responses,
-		reader:        bufio.NewReader(port),
 		responseChan:  make(chan string, 100), // 带缓冲的通道
 	}
 
@@ -140,69 +137,71 @@ func (m *Device) SendCommandExpect(command string, expected string) error {
 	return fmt.Errorf("expected response %q not found in %v", expected, responses)
 }
 
-// ListenNotifications 注册 modem 通知处理器
-func (m *Device) ListenNotifications(handler NotificationHandler) (error, context.CancelFunc) {
-	if m.isClosed.Load() {
-		return fmt.Errorf("device is closed"), nil
+// readResponse 从响应通道读取响应
+func (m *Device) readResponse() ([]string, error) {
+	var responses []string
+	timeout := time.After(m.timeout)
+
+	for {
+		select {
+		case line, ok := <-m.responseChan:
+			if !ok {
+				return responses, fmt.Errorf("device is closed")
+			}
+
+			responses = append(responses, line)
+			if m.responses.IsFinalResponse(line) {
+				return responses, nil
+			}
+
+		case <-timeout:
+			return responses, fmt.Errorf("command timeout")
+		}
 	}
-
-	// 注册通知处理器
-	m.urcMu.Lock()
-	m.urcHandler = handler
-	m.urcMu.Unlock()
-
-	// 监听上下文取消，取消时移除处理器
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		<-ctx.Done()
-		m.urcMu.Lock()
-		m.urcHandler = nil
-		m.urcMu.Unlock()
-	}()
-
-	return nil, cancel
 }
 
 // ===== 原生读写 =====
 
 // readLoop 从串口读取数据并分发
 func (m *Device) readLoop() {
-	for !m.isClosed.Load() {
-		line, err := m.reader.ReadString('\n')
+	reader := bufio.NewReader(m.port)
+	for {
+		if m.isClosed.Load() {
+			return
+		}
+
+		line, err := reader.ReadString('\n')
 		if err != nil {
-			// 连接已关闭，退出循环
-			if m.isClosed.Load() {
-				return
-			}
 			// EOF 表示连接已断开，应该退出循环
 			if err == io.EOF {
 				_ = m.Close()
 				return
 			}
 			// 其他错误，继续监听
+			time.Sleep(time.Second)
 			continue
 		}
 
+		// 去除空白字符
 		line = strings.TrimSpace(line)
 		if line == "" {
-			continue // 忽略空行
+			continue
 		}
 
-		// 分发数据
+		// 处理通知消息
 		if m.notifications.IsNotification(line) {
-			m.urcMu.RLock()
-			handler := m.urcHandler
-			m.urcMu.RUnlock()
-			if handler != nil {
-				go handler(line)
+			if m.urcHandler != nil {
+				go m.urcHandler(line)
 			}
-		} else {
-			select {
-			case m.responseChan <- line:
-			default:
-				// 通道满了，丢弃数据（避免阻塞）
-				log.Printf("discarding data: %s", line)
-			}
+			continue
+		}
+
+		// 将数据写入响应通道
+		select {
+		case m.responseChan <- line:
+		default:
+			// 通道满了，丢弃数据（避免阻塞）
+			log.Printf("discarding data: %s", line)
 		}
 	}
 }

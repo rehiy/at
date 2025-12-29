@@ -81,7 +81,7 @@ type AT interface {
  SendCommandExpect(ctx context.Context, command string, expected string) error
  
  // 通知监听
- ListenNotifications(ctx context.Context, handler NotificationHandler) error
+ ListenNotifications(ctx context.Context, handler func(s string)) error
  
  // 连接管理
  Close() error

@@ -1,9 +1,7 @@
 package at
 
 import (
-	"fmt"
 	"strings"
-	"time"
 )
 
 // ResponseSet 定义可配置的命令响应类型集合
@@ -81,27 +79,4 @@ func (rs *ResponseSet) IsError(line string) bool {
 		return true
 	}
 	return false
-}
-
-// readResponse 从响应通道读取响应
-func (m *Device) readResponse() ([]string, error) {
-	var responses []string
-	timeout := time.After(m.config.ReadTimeout)
-
-	for {
-		select {
-		case line, ok := <-m.responseChan:
-			if !ok {
-				return responses, fmt.Errorf("device is closed")
-			}
-
-			responses = append(responses, line)
-			if m.responses.IsFinalResponse(line) {
-				return responses, nil
-			}
-
-		case <-timeout:
-			return responses, fmt.Errorf("command timeout")
-		}
-	}
 }
