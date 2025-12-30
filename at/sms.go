@@ -417,8 +417,3 @@ func parseSMS(responses []string) *SMS {
 
 	return nil
 }
-
-// trimQuotes 去除字符串两端的空格和引号
-func trimQuotes(s string) string {
-	return strings.Trim(strings.TrimSpace(s), "\"")
-}

@@ -180,7 +180,7 @@ func (m *Device) GetPhoneNumber() (string, error) {
 			parts := strings.Split(cnumData, ",")
 			if len(parts) >= 2 {
 				// 提取引号中的手机号
-				number := strings.Trim(parts[1], `"'`)
+				number := trimQuotes(parts[1], `"'`)
 				if number != "" {
 					return number, nil
 				}
@@ -192,26 +192,30 @@ func (m *Device) GetPhoneNumber() (string, error) {
 }
 
 // GetOperator 查询运营商信息
-func (m *Device) GetOperator() (int, string, string, error) {
+func (m *Device) GetOperator() (int, int, string, int, error) {
 	responses, err := m.SendCommand(m.commands.Operator + "?")
 	if err != nil {
-		return 0, "", "", err
+		return 0, 0, "", 0, err
 	}
 
 	for _, resp := range responses {
 		if copsData, ok := strings.CutPrefix(resp, "+COPS:"); ok {
-			// 格式: +COPS: 0,0,"China Mobile",7
+			// 格式: +COPS: 0,2,"46001",7
 			parts := strings.Split(copsData, ",")
 			if len(parts) >= 3 {
 				mode := parseInt(parts[0])
-				format := parseInt(strings.Trim(parts[1], `"'`))
-				operator := strings.Trim(parts[2], `"'`)
-				return mode, operator, fmt.Sprintf("%d", format), nil
+				format := parseInt(trimQuotes(parts[1]))
+				operator := trimQuotes(parts[2])
+				act := 0 // Access Technology​
+				if len(parts) >= 4 {
+					act = parseInt(parts[3])
+				}
+				return mode, format, operator, act, nil
 			}
 		}
 	}
 
-	return 0, "", "", fmt.Errorf("failed to parse operator info")
+	return 0, 0, "", 0, fmt.Errorf("failed to parse operator info")
 }
 
 // ===== 网络信号 =====
@@ -331,9 +335,11 @@ func (m *Device) SetCallerID(enable bool) error {
 
 // parseInt 解析整数
 func parseInt(s string) int {
-	v, err := strconv.Atoi(strings.TrimSpace(s))
-	if err != nil {
-		return 0 // 保持与原来相同的错误处理行为
-	}
+	v, _ := strconv.Atoi(strings.TrimSpace(s))
 	return v
+}
+
+// trimQuotes 去除字符串两端的空格和引号
+func trimQuotes(s string) string {
+	return strings.Trim(strings.TrimSpace(s), `"'`)
 }

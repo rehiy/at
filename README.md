@@ -186,10 +186,11 @@ imsi, _ := device.GetIMSI()
 iccid, _ := device.GetICCID()
 phoneNumber, _ := device.GetPhoneNumber()
 // 查询运营商信息
-// 返回 (mode, operator, format, error)
+// 返回 (mode, format, operator, act, error)
 // mode: 网络选择模式 0-4
-// operator: 运营商名称（如 "China Mobile"）
 // format: 格式编号
+// operator: 运营商（如 "C46001"）
+// act: 无线接入技术类型
 mode, operator, format, _ := device.GetOperator()
 ```
 
