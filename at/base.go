@@ -20,25 +20,27 @@ type Port interface {
 
 // 配置参数
 type Config struct {
-	Name            string           // 设备名称
-	Timeout         time.Duration    // 超时时间
-	CommandSet      *CommandSet      // 自定义 AT 命令集，如果为 nil 则使用默认命令集
-	ResponseSet     *ResponseSet     // 自定义响应类型集，如果为 nil 则使用默认响应集
-	NotificationSet *NotificationSet // 自定义通知类型集，如果为 nil 则使用默认通知集
+	Name            string               // 设备名称
+	Timeout         time.Duration        // 超时时间
+	CommandSet      *CommandSet          // 自定义 AT 命令集，如果为 nil 则使用默认命令集
+	ResponseSet     *ResponseSet         // 自定义响应类型集，如果为 nil 则使用默认响应集
+	NotificationSet *NotificationSet     // 自定义通知类型集，如果为 nil 则使用默认通知集
+	Printf          func(string, ...any) // 日志输出函数，如果为 nil 则使用 log.Printf
 }
 
 // 设备连接
 type Device struct {
-	port          Port            // 串口连接
-	name          string          // 设备名称
-	timeout       time.Duration   // 超时时间
-	commands      CommandSet      // 使用的 AT 命令集
-	responses     ResponseSet     // 使用的响应类型集
-	responseChan  chan string     // 命令响应通道
-	notifications NotificationSet // 使用的通知类型集
-	urcHandler    func(string)    // 通知处理函数
-	closed        atomic.Bool     // 连接是否已关闭（原子操作保证并发安全）
-	mu            sync.Mutex      // 保护命令发送的互斥锁
+	port          Port                 // 串口连接
+	name          string               // 设备名称
+	timeout       time.Duration        // 超时时间
+	commands      CommandSet           // 使用的 AT 命令集
+	responses     ResponseSet          // 使用的响应类型集
+	responseChan  chan string          // 命令响应通道
+	notifications NotificationSet      // 使用的通知类型集
+	urcHandler    func(string)         // 通知处理函数
+	printf        func(string, ...any) // 日志输出函数
+	closed        atomic.Bool          // 连接是否已关闭（原子操作保证并发安全）
+	mu            sync.Mutex           // 保护命令发送的互斥锁
 }
 
 // New 创建一个新的设备连接实例
@@ -60,6 +62,9 @@ func New(port Port, handler func(string), config *Config) (*Device, error) {
 	}
 	if config.NotificationSet == nil {
 		config.NotificationSet = DefaultNotificationSet()
+	}
+	if config.Printf == nil {
+		config.Printf = log.Printf
 	}
 
 	dev := &Device{
@@ -86,7 +91,7 @@ func (m *Device) IsOpen() bool {
 
 // Close 关闭连接
 func (m *Device) Close() error {
-	log.Printf("[%s] closing device", m.name)
+	m.printf("[%s] closing device", m.name)
 
 	if m.closed.Swap(true) {
 		return nil // 已经关闭过了
@@ -164,7 +169,7 @@ func (m *Device) readLoop() {
 
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			log.Printf("[%s] read error: %v", m.name, err)
+			m.printf("[%s] read error: %v", m.name, err)
 			time.Sleep(m.timeout)
 			continue
 		}
@@ -188,7 +193,7 @@ func (m *Device) readLoop() {
 		case m.responseChan <- line:
 		default:
 			// 通道满了，丢弃数据（避免阻塞）
-			log.Printf("discarding data: %s", line)
+			m.printf("discarding data: %s", line)
 		}
 	}
 }
