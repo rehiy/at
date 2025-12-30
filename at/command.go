@@ -46,8 +46,8 @@ type CommandSet struct {
 }
 
 // DefaultCommandSet 返回默认的标准 AT 命令集
-func DefaultCommandSet() CommandSet {
-	return CommandSet{
+func DefaultCommandSet() *CommandSet {
+	return &CommandSet{
 		// 基本命令
 		Test:         "AT",
 		EchoOff:      "ATE0",

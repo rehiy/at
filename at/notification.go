@@ -23,8 +23,8 @@ type NotificationSet struct {
 }
 
 // DefaultNotificationSet 返回默认的URC类型集合
-func DefaultNotificationSet() NotificationSet {
-	return NotificationSet{
+func DefaultNotificationSet() *NotificationSet {
+	return &NotificationSet{
 		Ring:            "RING",
 		SMSReady:        "+CMTI:",
 		SMSContent:      "+CMT:",

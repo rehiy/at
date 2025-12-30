@@ -3,7 +3,6 @@ package at
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"log"
 	"strings"
 	"sync"
@@ -21,6 +20,7 @@ type Port interface {
 
 // 配置参数
 type Config struct {
+	Name            string           // 设备名称
 	Timeout         time.Duration    // 超时时间
 	CommandSet      *CommandSet      // 自定义 AT 命令集，如果为 nil 则使用默认命令集
 	ResponseSet     *ResponseSet     // 自定义响应类型集，如果为 nil 则使用默认响应集
@@ -30,11 +30,12 @@ type Config struct {
 // 设备连接
 type Device struct {
 	port          Port            // 串口连接
+	name          string          // 设备名称
 	timeout       time.Duration   // 超时时间
 	commands      CommandSet      // 使用的 AT 命令集
-	notifications NotificationSet // 使用的通知类型集
 	responses     ResponseSet     // 使用的响应类型集
 	responseChan  chan string     // 命令响应通道
+	notifications NotificationSet // 使用的通知类型集
 	urcHandler    func(string)    // 通知处理函数
 	closed        atomic.Bool     // 连接是否已关闭（原子操作保证并发安全）
 	mu            sync.Mutex      // 保护命令发送的互斥锁
@@ -42,34 +43,37 @@ type Device struct {
 
 // New 创建一个新的设备连接实例
 func New(port Port, handler func(string), config *Config) (*Device, error) {
-	timeout := max(config.Timeout, 200*time.Millisecond)
-
-	commands := DefaultCommandSet()
-	if config.CommandSet != nil {
-		commands = *config.CommandSet
+	if config == nil {
+		config = &Config{}
 	}
-
-	responses := DefaultResponseSet()
-	if config.ResponseSet != nil {
-		responses = *config.ResponseSet
+	if config.Name == "" {
+		config.Name = "unknown"
 	}
-
-	notifications := DefaultNotificationSet()
-	if config.NotificationSet != nil {
-		notifications = *config.NotificationSet
+	if config.Timeout == 0 {
+		config.Timeout = 200 * time.Millisecond
+	}
+	if config.CommandSet == nil {
+		config.CommandSet = DefaultCommandSet()
+	}
+	if config.ResponseSet == nil {
+		config.ResponseSet = DefaultResponseSet()
+	}
+	if config.NotificationSet == nil {
+		config.NotificationSet = DefaultNotificationSet()
 	}
 
 	dev := &Device{
 		port:          port,
-		timeout:       timeout,
-		commands:      commands,
-		notifications: notifications,
-		responses:     responses,
+		name:          config.Name,
+		timeout:       config.Timeout,
+		commands:      *config.CommandSet,
+		responses:     *config.ResponseSet,
 		responseChan:  make(chan string, 100),
+		notifications: *config.NotificationSet,
 		urcHandler:    handler,
 	}
 
-	// 启动统一读取循环
+	// 开始读取循环
 	go dev.readLoop()
 
 	return dev, nil
@@ -82,7 +86,7 @@ func (m *Device) IsOpen() bool {
 
 // Close 关闭连接
 func (m *Device) Close() error {
-	log.Printf("closing device")
+	log.Printf("[%s] closing device", m.name)
 
 	if m.closed.Swap(true) {
 		return nil // 已经关闭过了
@@ -97,7 +101,7 @@ func (m *Device) Close() error {
 // SendCommand 发送 AT 命令并等待响应
 func (m *Device) SendCommand(command string) ([]string, error) {
 	if m.closed.Load() {
-		return nil, fmt.Errorf("device is closed")
+		return nil, fmt.Errorf("[%s] device closed", m.name)
 	}
 
 	// 添加回车换行符并写入命令
@@ -134,11 +138,11 @@ func (m *Device) readResponse() ([]string, error) {
 		select {
 		case line, ok := <-m.responseChan:
 			if !ok {
-				return responses, fmt.Errorf("device is closed")
+				return responses, fmt.Errorf("device closed")
 			}
 
 			responses = append(responses, line)
-			if m.responses.IsFinalResponse(line) {
+			if m.responses.IsFinal(line) {
 				return responses, nil
 			}
 
@@ -160,12 +164,7 @@ func (m *Device) readLoop() {
 
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			// EOF 表示连接已断开，应该退出循环
-			if err == io.EOF {
-				m.Close()
-				return
-			}
-			// 其他错误，继续监听
+			log.Printf("[%s] read error: %v", m.name, err)
 			time.Sleep(m.timeout)
 			continue
 		}
