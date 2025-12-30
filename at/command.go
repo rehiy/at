@@ -180,8 +180,7 @@ func (m *Device) GetPhoneNumber() (string, error) {
 			parts := strings.Split(cnumData, ",")
 			if len(parts) >= 2 {
 				// 提取引号中的手机号
-				number := trimQuotes(parts[1], `"'`)
-				if number != "" {
+				if number := trimQuotes(parts[1]); number != "" {
 					return number, nil
 				}
 			}
