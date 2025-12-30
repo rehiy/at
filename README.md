@@ -85,7 +85,7 @@ type Port interface {
 func New(port Port, handler func(string), config *Config) (*Device, error)
 
 // 连接管理
-func (m *Device) IsLive() bool
+func (m *Device) IsOpen() bool
 func (m *Device) Close() error
 
 // 命令发送
@@ -349,7 +349,7 @@ config := &at.Config{
 
 ### 并发安全
 
-- `isClosed`: 使用 `atomic.Bool` 保证原子操作
+- `closed`: 使用 `atomic.Bool` 保证原子操作
 - `mu`: 互斥锁保护命令发送
 - 响应通道: 带缓冲的通道（容量 100）
 

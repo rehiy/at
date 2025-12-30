@@ -36,7 +36,7 @@ type Device struct {
 	responses     ResponseSet     // 使用的响应类型集
 	responseChan  chan string     // 命令响应通道
 	urcHandler    func(string)    // 通知处理函数
-	isClosed      atomic.Bool     // 连接是否已关闭（原子操作保证并发安全）
+	closed        atomic.Bool     // 连接是否已关闭（原子操作保证并发安全）
 	mu            sync.Mutex      // 保护命令发送的互斥锁
 }
 
@@ -75,14 +75,16 @@ func New(port Port, handler func(string), config *Config) (*Device, error) {
 	return dev, nil
 }
 
-// IsLive 检查连接状态
-func (m *Device) IsLive() bool {
-	return !m.isClosed.Load()
+// IsOpen 链接状态
+func (m *Device) IsOpen() bool {
+	return !m.closed.Load()
 }
 
 // Close 关闭连接
 func (m *Device) Close() error {
-	if m.isClosed.Swap(true) {
+	log.Printf("closing device")
+
+	if m.closed.Swap(true) {
 		return nil // 已经关闭过了
 	}
 
@@ -94,7 +96,7 @@ func (m *Device) Close() error {
 
 // SendCommand 发送 AT 命令并等待响应
 func (m *Device) SendCommand(command string) ([]string, error) {
-	if m.isClosed.Load() {
+	if m.closed.Load() {
 		return nil, fmt.Errorf("device is closed")
 	}
 
@@ -152,7 +154,7 @@ func (m *Device) readResponse() ([]string, error) {
 func (m *Device) readLoop() {
 	reader := bufio.NewReader(m.port)
 	for {
-		if m.isClosed.Load() {
+		if m.closed.Load() {
 			return
 		}
 
@@ -160,7 +162,7 @@ func (m *Device) readLoop() {
 		if err != nil {
 			// EOF 表示连接已断开，应该退出循环
 			if err == io.EOF {
-				_ = m.Close()
+				m.Close()
 				return
 			}
 			// 其他错误，继续监听
@@ -194,7 +196,7 @@ func (m *Device) readLoop() {
 
 // writeString 写入数据到串口
 func (m *Device) writeString(data string) error {
-	if m.isClosed.Load() {
+	if m.closed.Load() {
 		return fmt.Errorf("device is closed")
 	}
 
