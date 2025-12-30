@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,14 +38,17 @@ type Device struct {
 	responses     ResponseSet          // 使用的响应类型集
 	responseChan  chan string          // 命令响应通道
 	notifications NotificationSet      // 使用的通知类型集
-	urcHandler    func(string)         // 通知处理函数
+	urcHandler    UrcHandler           // 通知处理函数
 	printf        func(string, ...any) // 日志输出函数
 	closed        atomic.Bool          // 连接是否已关闭（原子操作保证并发安全）
 	mu            sync.Mutex           // 保护命令发送的互斥锁
 }
 
+// 通知处理函数
+type UrcHandler func(string, map[int]string)
+
 // New 创建一个新的设备连接实例
-func New(port Port, handler func(string), config *Config) (*Device, error) {
+func New(port Port, handler UrcHandler, config *Config) (*Device, error) {
 	if config == nil {
 		config = &Config{}
 	}
@@ -101,13 +105,13 @@ func (m *Device) Close() error {
 }
 
 // SendCommand 发送 AT 命令并等待响应
-func (m *Device) SendCommand(command string) ([]string, error) {
+func (m *Device) SendCommand(cmd string) ([]string, error) {
 	if m.closed.Load() {
 		return nil, fmt.Errorf("device closed")
 	}
 
 	// 添加回车换行符并写入命令
-	if err := m.writeString(command + "\r\n"); err != nil {
+	if err := m.writeString(cmd + "\r\n"); err != nil {
 		return nil, err
 	}
 
@@ -115,8 +119,8 @@ func (m *Device) SendCommand(command string) ([]string, error) {
 }
 
 // SendCommandExpect 发送 AT 命令并期望特定响应
-func (m *Device) SendCommandExpect(command string, expected string) error {
-	responses, err := m.SendCommand(command)
+func (m *Device) SendCommandExpect(cmd string, expected string) error {
+	responses, err := m.SendCommand(cmd)
 	if err != nil {
 		return err
 	}
@@ -182,7 +186,7 @@ func (m *Device) readLoop() {
 		// 处理通知消息
 		if m.notifications.IsNotification(line) {
 			if m.urcHandler != nil {
-				go m.urcHandler(line)
+				go m.urcHandler(parseParam(line))
 			}
 			continue
 		}
@@ -213,6 +217,7 @@ func (m *Device) writeString(data string) error {
 		<-m.responseChan
 	}
 
+	// 写入数据
 	n, err := m.port.Write([]byte(data))
 	if err != nil {
 		return fmt.Errorf("failed to write to port: %w", err)
@@ -222,4 +227,27 @@ func (m *Device) writeString(data string) error {
 	}
 
 	return nil
+}
+
+// ===== 辅助工具 =====
+
+// parseInt 解析整数
+func parseInt(s string) int {
+	v, _ := strconv.Atoi(s)
+	return v
+}
+
+// parseParam 解析响应内容
+func parseParam(line string) (string, map[int]string) {
+	parts := strings.SplitN(line, ":", 2)
+	if len(parts) == 2 {
+		label := strings.TrimSpace(parts[0])
+		group := strings.Split(strings.TrimSpace(parts[1]), ",")
+		param := map[int]string{}
+		for i, v := range group {
+			param[i] = strings.Trim(strings.TrimSpace(v), `"'`)
+		}
+		return label, param
+	}
+	return line, nil
 }

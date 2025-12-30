@@ -2,7 +2,6 @@ package at
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 )
 
@@ -121,20 +120,20 @@ func (m *Device) SaveSettings() error {
 // ===== 信息查询 =====
 
 // SmpleQuery 通用简单信息查询函数
-func (m *Device) SmpleQuery(command string) (string, error) {
-	responses, err := m.SendCommand(command)
+func (m *Device) SmpleQuery(cmd string) (string, error) {
+	responses, err := m.SendCommand(cmd)
 	if err != nil {
 		return "", err
 	}
 
-	// 查找信息行（不以AT开头的行）
-	for _, resp := range responses {
-		if !strings.HasPrefix(resp, "AT") {
-			return strings.TrimSpace(resp), nil
+	// 查找不以AT开头的行
+	for _, line := range responses {
+		if !strings.HasPrefix(line, "AT") {
+			return line, nil
 		}
 	}
 
-	return "", fmt.Errorf("no info found for %s", command)
+	return "", fmt.Errorf("no info found for %s", cmd)
 }
 
 // GetManufacturer 查询制造商信息
@@ -168,26 +167,23 @@ func (m *Device) GetICCID() (string, error) {
 }
 
 // GetPhoneNumber 查询手机号
-func (m *Device) GetPhoneNumber() (string, error) {
+func (m *Device) GetPhoneNumber() (string, int, error) {
 	responses, err := m.SendCommand(m.commands.PhoneNumber)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
-	for _, resp := range responses {
-		if cnumData, ok := strings.CutPrefix(resp, "+CNUM:"); ok {
-			// 格式: +CNUM: ,"+8613800138000",129
-			parts := strings.Split(cnumData, ",")
-			if len(parts) >= 2 {
-				// 提取引号中的手机号
-				if number := trimQuotes(parts[1]); number != "" {
-					return number, nil
-				}
-			}
+	for _, line := range responses {
+		label, param := parseParam(line)
+		// 格式: +CNUM: ,"+8613800138000",129
+		if label == "+CNUM" && len(param) >= 2 {
+			number := param[1]
+			tags := parseInt(param[2]) //号码属性
+			return number, tags, nil
 		}
 	}
 
-	return "", fmt.Errorf("no phone number found")
+	return "", 0, fmt.Errorf("no phone number found")
 }
 
 // GetOperator 查询运营商信息
@@ -197,20 +193,15 @@ func (m *Device) GetOperator() (int, int, string, int, error) {
 		return 0, 0, "", 0, err
 	}
 
-	for _, resp := range responses {
-		if copsData, ok := strings.CutPrefix(resp, "+COPS:"); ok {
-			// 格式: +COPS: 0,2,"46001",7
-			parts := strings.Split(copsData, ",")
-			if len(parts) >= 3 {
-				mode := parseInt(parts[0])
-				format := parseInt(trimQuotes(parts[1]))
-				operator := trimQuotes(parts[2])
-				act := 0 // Access Technology​
-				if len(parts) >= 4 {
-					act = parseInt(parts[3])
-				}
-				return mode, format, operator, act, nil
-			}
+	for _, line := range responses {
+		label, param := parseParam(line)
+		// 格式: +COPS: 0,2,"46001",7
+		if label == "+COPS" && len(param) >= 3 {
+			mode := parseInt(param[0])
+			format := parseInt(param[1])
+			oper := param[2]          // 运营商
+			act := parseInt(param[3]) // 接入技术
+			return mode, format, oper, act, nil
 		}
 	}
 
@@ -226,14 +217,13 @@ func (m *Device) GetSignalQuality() (int, int, error) {
 		return 0, 0, err
 	}
 
-	for _, resp := range responses {
-		if csqData, ok := strings.CutPrefix(resp, "+CSQ:"); ok {
-			parts := strings.Split(csqData, ",")
-			if len(parts) >= 2 {
-				rssi := parseInt(parts[0])
-				ber := parseInt(parts[1])
-				return rssi, ber, nil
-			}
+	for _, line := range responses {
+		label, param := parseParam(line)
+		// 格式: +CSQ: 15,0
+		if label == "+CSQ" && len(param) >= 2 {
+			rssi := parseInt(param[0])
+			ber := parseInt(param[1])
+			return rssi, ber, nil
 		}
 	}
 
@@ -247,14 +237,13 @@ func (m *Device) GetNetworkStatus() (int, int, error) {
 		return 0, 0, err
 	}
 
-	for _, resp := range responses {
-		if cregData, ok := strings.CutPrefix(resp, "+CREG:"); ok {
-			parts := strings.Split(cregData, ",")
-			if len(parts) >= 2 {
-				n := parseInt(parts[0])
-				stat := parseInt(parts[1])
-				return n, stat, nil
-			}
+	for _, line := range responses {
+		label, param := parseParam(line)
+		// 格式: +CREG: 0,1
+		if label == "+CREG" && len(param) >= 2 {
+			n := parseInt(param[0])
+			stat := parseInt(param[1])
+			return n, stat, nil
 		}
 	}
 
@@ -268,14 +257,13 @@ func (m *Device) GetGPRSStatus() (int, int, error) {
 		return 0, 0, err
 	}
 
-	for _, resp := range responses {
-		if cgregData, ok := strings.CutPrefix(resp, "+CGREG:"); ok {
-			parts := strings.Split(cgregData, ",")
-			if len(parts) >= 2 {
-				n := parseInt(parts[0])
-				stat := parseInt(parts[1])
-				return n, stat, nil
-			}
+	for _, line := range responses {
+		label, param := parseParam(line)
+		// 格式: +CGREG: 0,1
+		if label == "+CGREG" && len(param) >= 2 {
+			n := parseInt(param[0])
+			stat := parseInt(param[1])
+			return n, stat, nil
 		}
 	}
 
@@ -306,13 +294,12 @@ func (m *Device) GetCallerID() (bool, error) {
 		return false, err
 	}
 
-	for _, resp := range responses {
-		if clipData, ok := strings.CutPrefix(resp, "+CLIP:"); ok {
-			parts := strings.Split(clipData, ",")
-			if len(parts) >= 1 {
-				status := parseInt(parts[0])
-				return status == 1, nil
-			}
+	for _, line := range responses {
+		label, param := parseParam(line)
+		// 格式: +CLIP: 1
+		if label == "+CLIP" && len(param) >= 1 {
+			status := parseInt(param[0])
+			return status == 1, nil
 		}
 	}
 
@@ -321,24 +308,11 @@ func (m *Device) GetCallerID() (bool, error) {
 
 // SetCallerID 设置来电显示
 func (m *Device) SetCallerID(enable bool) error {
-	command := m.commands.CallerID
+	cmd := m.commands.CallerID
 	if enable {
-		command += "=1"
+		cmd += "=1"
 	} else {
-		command += "=0"
+		cmd += "=0"
 	}
-	return m.SendCommandExpect(command, "OK")
-}
-
-// ===== 辅助工具 =====
-
-// parseInt 解析整数
-func parseInt(s string) int {
-	v, _ := strconv.Atoi(strings.TrimSpace(s))
-	return v
-}
-
-// trimQuotes 去除字符串两端的空格和引号
-func trimQuotes(s string) string {
-	return strings.Trim(strings.TrimSpace(s), `"'`)
+	return m.SendCommandExpect(cmd, "OK")
 }

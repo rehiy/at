@@ -1,7 +1,6 @@
 package at
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -68,35 +67,4 @@ func (ns *NotificationSet) IsNotification(line string) bool {
 		}
 	}
 	return false
-}
-
-// ParseNotification 解析通知内容
-func ParseNotification(notification string) (string, map[string]string) {
-	if strings.Contains(notification, ":") {
-		parts := strings.SplitN(notification, ":", 2)
-		if len(parts) == 2 {
-			noteType := strings.TrimSpace(parts[0])
-			params := parseNotificationParams(parts[1])
-			return noteType, params
-		}
-	}
-
-	return notification, nil
-}
-
-// parseNotificationParams 解析通知参数
-func parseNotificationParams(paramStr string) map[string]string {
-	params := make(map[string]string)
-
-	// 移除引号并分割参数
-	parts := strings.Split(trimQuotes(paramStr), ",")
-
-	for i, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			params[fmt.Sprintf("param%d", i+1)] = part
-		}
-	}
-
-	return params
 }

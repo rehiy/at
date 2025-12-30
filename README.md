@@ -89,8 +89,8 @@ func (m *Device) IsOpen() bool
 func (m *Device) Close() error
 
 // 命令发送
-func (m *Device) SendCommand(command string) ([]string, error)
-func (m *Device) SendCommandExpect(command, expected string) error
+func (m *Device) SendCommand(cmd string) ([]string, error)
+func (m *Device) SendCommandExpect(cmd, expected string) error
 ```
 
 ## 配置说明
@@ -282,18 +282,16 @@ type SMS struct {
 通知处理函数在创建设备时传入，自动监听各类 URC（Unsolicited Result Code）：
 
 ```go
-urcHandler := func(notification string) {
- noteType, params := at.ParseNotification(notification)
-
- switch noteType {
+urcHandler := func(label string, param map[int]string) {
+ switch label {
  case "+CMTI:": // 新短信通知
-  fmt.Println("收到新短信:", params)
+  fmt.Println("收到新短信:", param)
  case "RING":   // 来电
   fmt.Println("电话响铃")
  case "+CLIP:": // 来电显示
-  fmt.Println("来电号码:", params)
+  fmt.Println("来电号码:", param)
  case "+CREG:": // 网络状态变化
-  fmt.Println("网络状态:", params)
+  fmt.Println("网络状态:", param)
  }
 }
 ```

@@ -117,9 +117,9 @@ func (m *Device) DeleteAllSMS() error {
 }
 
 // sendSMSCommand 通用的短信发送辅助函数
-func (m *Device) sendSMSCommand(command string, data string) error {
+func (m *Device) sendSMSCommand(cmd string, data string) error {
 	// 等待 '>' 提示符
-	if err := m.SendCommandExpect(command, ">"); err != nil {
+	if err := m.SendCommandExpect(cmd, ">"); err != nil {
 		return fmt.Errorf("failed to write SMS command: %w", err)
 	}
 
@@ -366,16 +366,12 @@ func parseSMSList(responses []string) []SMS {
 		if strings.HasPrefix(line, "+CMGL:") {
 			// 解析短信头
 			sms := SMS{}
-			parts := strings.Split(strings.TrimPrefix(line, "+CMGL:"), ",")
-			if len(parts) >= 2 {
-				fmt.Sscanf(parts[0], "%d", &sms.Index)
-				sms.Status = trimQuotes(parts[1])
-				if len(parts) >= 3 {
-					sms.PhoneNumber = trimQuotes(parts[2])
-				}
-				if len(parts) >= 5 {
-					sms.Timestamp = trimQuotes(parts[4])
-				}
+			_, param := parseParam(line)
+			if len(param) >= 2 {
+				sms.Index = parseInt(param[0])
+				sms.Status = param[1]
+				sms.PhoneNumber = param[2]
+				sms.Timestamp = param[4]
 			}
 
 			// 下一行是短信内容
@@ -397,13 +393,11 @@ func parseSMS(responses []string) *SMS {
 		line := responses[i]
 		if strings.HasPrefix(line, "+CMGR:") {
 			sms := &SMS{}
-			parts := strings.Split(strings.TrimPrefix(line, "+CMGR:"), ",")
-			if len(parts) >= 2 {
-				sms.Status = trimQuotes(parts[0])
-				sms.PhoneNumber = trimQuotes(parts[1])
-				if len(parts) >= 4 {
-					sms.Timestamp = trimQuotes(parts[3])
-				}
+			_, param := parseParam(line)
+			if len(param) >= 2 {
+				sms.Status = param[0]
+				sms.PhoneNumber = param[1]
+				sms.Timestamp = param[3]
 			}
 
 			// 下一行是短信内容
@@ -414,6 +408,5 @@ func parseSMS(responses []string) *SMS {
 			return sms
 		}
 	}
-
 	return nil
 }
