@@ -53,7 +53,7 @@ func New(port Port, handler UrcHandler, config *Config) (*Device, error) {
 		config = &Config{}
 	}
 	if config.Timeout == 0 {
-		config.Timeout = 200 * time.Millisecond
+		config.Timeout = time.Second
 	}
 	if config.CommandSet == nil {
 		config.CommandSet = DefaultCommandSet()
