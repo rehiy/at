@@ -1,4 +1,4 @@
-package device
+package model
 
 import (
 	"github.com/rehiy/modem/at"
