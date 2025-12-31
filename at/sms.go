@@ -3,102 +3,83 @@ package at
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/rehiy/modem/pdu"
 )
 
+// SMS 短信信息
 type SMS struct {
-	Index   int    `json:"index"`
-	Status  string `json:"status"`
-	Number  string `json:"number"`
-	Time    string `json:"time"`
-	Message string `json:"message"`
+	pdu.Message
+	Index  int    `json:"index"`  // SIM 卡中的索引
+	Status string `json:"status"` // 状态: REC UNREAD/REC READ/STO UNSENT/STO SENT
+}
+
+// ToJSON 用于 JSON 序列化，提供前端需要的字段名
+func (s *SMS) ToJSON() map[string]any {
+	return map[string]any{
+		"phoneNumber": s.PhoneNumber,
+		"text":        s.Text,
+		"time":        s.Timestamp.Format("2006/01/02 15:04:05"),
+		"index":       s.Index,
+		"status":      s.Status,
+	}
 }
 
 // ListSMS 获取短信列表。
-func (s *Device) ListSMS() ([]SMS, error) {
-	responses, err := s.SendCommand("AT+CMGL=4")
+func (m *Device) ListSMS() ([]SMS, error) {
+	responses, err := m.SendCommand("AT+CMGL=4")
 	if err != nil {
 		return nil, err
 	}
 
-	// 按引用号+号码分组存储长短信片段
-	type fragment struct {
-		seq   int
-		sms   SMS
-		ref   int
-		total int
-	}
-	fragments := make(map[string][]fragment)
-	var singles []SMS
+	var result []SMS
+	concatMgr := pdu.NewConcatManager()
 
-	for i := 0; i < len(responses); i++ {
+	for i, l := 0, len(responses); i < l; {
 		label, param := parseParam(responses[i])
+		i++
+
 		if label != "+CMGL" || len(param) < 2 {
 			continue
 		}
 
-		// PDU 数据在下一行
-		if i+1 >= len(responses) {
-			continue
+		if i >= l {
+			break // PDU 数据在下一行，如果下一行不存在，则退出
 		}
-		pduHex := strings.TrimSpace(strings.TrimSuffix(responses[i+1], "OK"))
 
-		idx := parseInt(param[0])
-		stat := parseInt(param[1])
-		item := SMS{Index: idx, Status: getPDUStatus(stat)}
-		ref, total, seq := 0, 1, 1
+		pduHex := responses[i]
+		i++
 
 		msg, err := pdu.Decode(pduHex)
 		if err != nil {
-			item.Message = "PDU Decode Error: " + err.Error()
-		} else {
-			item.Number = msg.PhoneNumber
-			item.Time = msg.Timestamp.Format("2006/01/02 15:04:05")
-			item.Message = msg.Text
-			if msg.Parts > 0 {
-				total = int(msg.Parts)
-				seq = int(msg.Part)
-				ref = int(msg.Reference)
-			}
+			m.printf("decode pdu error: %v", err)
+			continue
 		}
 
-		if total > 1 {
-			key := fmt.Sprintf("%s_%d", item.Number, ref)
-			fragments[key] = append(fragments[key], fragment{seq: seq, sms: item})
-		} else {
-			singles = append(singles, item)
+		sms, err := concatMgr.AddMessage(msg)
+		if err != nil {
+			m.printf("concat sms %s error: %v", param[0], err)
+			continue
+		}
+		if sms != nil {
+			result = append(result, SMS{
+				Message: *sms,
+				Index:   parseInt(param[0]),
+				Status:  getPDUStatus(parseInt(param[1])),
+			})
 		}
 	}
 
-	// 合并长短信
-	for _, frags := range fragments {
-		sort.Slice(frags, func(i, j int) bool { return frags[i].seq < frags[j].seq })
-		var fullMsg string
-		for _, f := range frags {
-			fullMsg += f.sms.Message
-		}
-		frags[0].sms.Message = fullMsg
-		singles = append(singles, frags[0].sms)
-	}
-
-	sort.Slice(singles, func(i, j int) bool { return singles[i].Index < singles[j].Index })
-	return singles, nil
+	sort.Slice(result, func(i, j int) bool { return result[i].Index < result[j].Index })
+	return result, nil
 }
 
 // SendSMS 发送短信。
-func (s *Device) SendSMS(number, message string) error {
+func (m *Device) SendSMS(number, message string) error {
 	msg := &pdu.Message{
 		Type:        pdu.MessageTypeSMSSubmit,
 		PhoneNumber: number,
 		Text:        message,
-	}
-
-	if !pdu.IsGSM7BitCompatible(message) {
-		msg.Encoding = pdu.EncodingUCS2
-	} else {
-		msg.Encoding = pdu.Encoding7Bit
 	}
 
 	pdus, err := pdu.Encode(msg)
@@ -107,12 +88,12 @@ func (s *Device) SendSMS(number, message string) error {
 	}
 
 	for _, p := range pdus {
-		err = s.SendCommandExpect(fmt.Sprintf("AT+CMGS=%d", p.Length), ">")
+		err = m.SendCommandExpect(fmt.Sprintf("AT+CMGS=%d", p.Length), ">")
 		if err != nil {
 			return err
 		}
 
-		err = s.writeString(p.Data + "\x1A")
+		err = m.writeString(p.Data + "\x1A")
 		if err != nil {
 			return err
 		}
@@ -122,8 +103,8 @@ func (s *Device) SendSMS(number, message string) error {
 }
 
 // DeleteSMS 删除指定索引的短信。
-func (s *Device) DeleteSMS(index int) error {
-	_, err := s.SendCommand(fmt.Sprintf("AT+CMGD=%d", index))
+func (m *Device) DeleteSMS(index int) error {
+	_, err := m.SendCommand(fmt.Sprintf("AT+CMGD=%d", index))
 	return err
 }
 
