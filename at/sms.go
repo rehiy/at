@@ -13,31 +13,28 @@ type SMS struct {
 	PhoneNumber string `json:"phoneNumber"`
 	Text        string `json:"text"`
 	Time        string `json:"time"`
-	Index       int    `json:"index"`  // SIM 卡中的索引
-	Status      int    `json:"status"` // 0: 未读, 1: 已读, 2: 未发送, 3: 已发送
+	Index       int    `json:"index"`   // 首个分片的索引
+	Indices     []int  `json:"indices"` // 所有分片的索引
+	Status      string `json:"status"`  // 短信状态 [PDU: TEXT, 0: "REC UNREAD", 1: "REC READ", 2: "STO UNSENT", 3: "STO SENT", 4: "ALL"]
 }
 
-// SetSMSTextMode 设置短信为文本模式
-func (m *Device) SetSMSTextMode() error {
-	cmd := fmt.Sprintf("%s=0", m.commands.SMSFormat)
+// SetSMSMode 设置短信模式
+// v [0: PDU 模式, 1: TEXT 模式]
+func (m *Device) SetSMSMode(v int) error {
+	cmd := fmt.Sprintf("%s=%d", m.commands.SMSFormat, v)
 	return m.SendCommandExpect(cmd, "OK")
 }
 
-// SetSMSPDUMode 设置短信为PDU模式
-func (m *Device) SetSMSPDUMode() error {
-	cmd := fmt.Sprintf("%s=1", m.commands.SMSFormat)
-	return m.SendCommandExpect(cmd, "OK")
-}
-
-// ListSMS 获取短信列表。
-func (m *Device) ListSMS() ([]SMS, error) {
-	cmd := fmt.Sprintf("%s=%d", m.commands.ListSMS, 4)
+// ListSMSPdu 获取短信列表
+func (m *Device) ListSMSPdu(stat int) ([]SMS, error) {
+	cmd := fmt.Sprintf("%s=%d", m.commands.ListSMS, stat)
 	responses, err := m.SendCommand(cmd)
 	if err != nil {
 		return nil, err
 	}
 
-	var result []SMS
+	result := []SMS{}
+	indexMap := map[byte][]int{}
 	concatMgr := pdu.NewConcatManager()
 
 	for i, l := 0, len(responses); i < l; {
@@ -48,32 +45,39 @@ func (m *Device) ListSMS() ([]SMS, error) {
 			continue
 		}
 
+		// 无下一行，退出
 		if i >= l {
-			break // 下一行找不到 PDU 数据，退出
+			break
 		}
 
-		pduHex := responses[i]
+		// 解码 PDU 数据
+		msg, err := pdu.Decode(responses[i])
 		i++
-
-		msg, err := pdu.Decode(pduHex)
 		if err != nil {
 			m.printf("decode pdu error: %v", err)
 			continue
 		}
 
+		// 记录消息索引
+		index := parseInt(param[0])
+		indexMap[msg.Reference] = append(indexMap[msg.Reference], index)
+
+		// 尝试合并短信
 		sms, err := concatMgr.AddMessage(msg)
 		if err != nil {
-			m.printf("concat sms %s error: %v", param[0], err)
+			m.printf("concat sms %s error: %v", index, err)
 			continue
 		}
 
+		// 添加已解析的短信到列表
 		if sms != nil {
 			result = append(result, SMS{
 				PhoneNumber: sms.PhoneNumber,
 				Text:        sms.Text,
 				Time:        sms.Timestamp.Format("2006/01/02 15:04:05"),
-				Index:       parseInt(param[0]),
-				Status:      parseInt(param[1]),
+				Index:       indexMap[sms.Reference][0],
+				Indices:     indexMap[sms.Reference],
+				Status:      param[1],
 			})
 		}
 	}
@@ -82,8 +86,8 @@ func (m *Device) ListSMS() ([]SMS, error) {
 	return result, nil
 }
 
-// SendSMS 发送短信。
-func (m *Device) SendSMS(number, message string) error {
+// SendSMSPdu 发送短信
+func (m *Device) SendSMSPdu(number, message string) error {
 	msg := &pdu.Message{
 		Type:        pdu.MessageTypeSMSSubmit,
 		PhoneNumber: number,
@@ -117,11 +121,9 @@ func (m *Device) SendSMS(number, message string) error {
 	return nil
 }
 
-// DeleteSMS 删除指定索引的短信。
+// DeleteSMS 删除指定索引的短信
 func (m *Device) DeleteSMS(index int) error {
 	cmd := fmt.Sprintf("%s=%d", m.commands.DeleteSMS, index)
 	_, err := m.SendCommand(cmd)
 	return err
 }
-
-// 辅助函数

@@ -50,8 +50,8 @@ func (cm *ConcatMessage) GetCompleteMessage() (*Message, error) {
 		return nil, fmt.Errorf("message incomplete: %d/%d parts", len(cm.Parts), cm.Total)
 	}
 
-	var completeText strings.Builder
 	var firstMsg *Message
+	var completeText strings.Builder
 
 	// 预估总长度以减少内存分配
 	estimatedLen := 0
@@ -79,6 +79,7 @@ func (cm *ConcatMessage) GetCompleteMessage() (*Message, error) {
 		SMSC:        firstMsg.SMSC,
 		Timestamp:   firstMsg.Timestamp,
 		Flash:       firstMsg.Flash,
+		Reference:   firstMsg.Reference,
 	}
 
 	return msg, nil
@@ -86,8 +87,8 @@ func (cm *ConcatMessage) GetCompleteMessage() (*Message, error) {
 
 // ConcatManager 管理多组长短信
 type ConcatManager struct {
-	mu       sync.RWMutex
 	messages map[byte]*ConcatMessage
+	mu       sync.RWMutex
 }
 
 // NewConcatManager 创建新的长短信管理器

@@ -244,7 +244,7 @@ device.SendSMS("+8613800138000", "你好，这是一条中文短信！")
 
 ```go
 // 列出短信
-list, _ := device.ListSMS()
+list, _ := device.ListSMSPdu()
 for _, sms := range list {
     fmt.Printf("来自: %s\n内容: %s\n", sms.PhoneNumber, sms.Message)
 }
