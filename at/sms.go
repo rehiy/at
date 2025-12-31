@@ -10,20 +10,23 @@ import (
 
 // SMS 短信信息
 type SMS struct {
-	pdu.Message
-	Index  int    `json:"index"`  // SIM 卡中的索引
-	Status string `json:"status"` // 状态: REC UNREAD/REC READ/STO UNSENT/STO SENT
+	PhoneNumber string `json:"phoneNumber"`
+	Text        string `json:"text"`
+	Time        string `json:"time"`
+	Index       int    `json:"index"`  // SIM 卡中的索引
+	Status      int    `json:"status"` // 0: 未读, 1: 已读, 2: 未发送, 3: 已发送
 }
 
-// ToJSON 用于 JSON 序列化，提供前端需要的字段名
-func (s *SMS) ToJSON() map[string]any {
-	return map[string]any{
-		"phoneNumber": s.PhoneNumber,
-		"text":        s.Text,
-		"time":        s.Timestamp.Format("2006/01/02 15:04:05"),
-		"index":       s.Index,
-		"status":      s.Status,
-	}
+// SetSMSTextMode 设置短信为文本模式
+func (m *Device) SetSMSTextMode() error {
+	cmd := fmt.Sprintf("%s=0", m.commands.SMSFormat)
+	return m.SendCommandExpect(cmd, "OK")
+}
+
+// SetSMSPDUMode 设置短信为PDU模式
+func (m *Device) SetSMSPDUMode() error {
+	cmd := fmt.Sprintf("%s=1", m.commands.SMSFormat)
+	return m.SendCommandExpect(cmd, "OK")
 }
 
 // ListSMS 获取短信列表。
@@ -66,9 +69,11 @@ func (m *Device) ListSMS() ([]SMS, error) {
 
 		if sms != nil {
 			result = append(result, SMS{
-				Message: *sms,
-				Index:   parseInt(param[0]),
-				Status:  getPDUStatus(parseInt(param[1])),
+				PhoneNumber: sms.PhoneNumber,
+				Text:        sms.Text,
+				Time:        sms.Timestamp.Format("2006/01/02 15:04:05"),
+				Index:       parseInt(param[0]),
+				Status:      parseInt(param[1]),
 			})
 		}
 	}
@@ -120,18 +125,3 @@ func (m *Device) DeleteSMS(index int) error {
 }
 
 // 辅助函数
-
-func getPDUStatus(stat int) string {
-	switch stat {
-	case 0:
-		return "REC UNREAD"
-	case 1:
-		return "REC READ"
-	case 2:
-		return "STO UNSENT"
-	case 3:
-		return "STO SENT"
-	default:
-		return "UNKNOWN"
-	}
-}
