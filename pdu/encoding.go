@@ -208,7 +208,20 @@ func EncodePhoneNumber(number string) (AddressType, string) {
 
 // DecodePhoneNumber 解码 BCD 格式的电话号码
 func DecodePhoneNumber(data string, addrType AddressType) string {
+	// 字母数字地址：直接 7-bit 解码（不进行 nibble 交换）
+	if addrType == AddressTypeAlphanumeric {
+		bytes, err := HexToBytes(data)
+		if err != nil {
+			return data
+		}
+		// 计算字符数：addrLen 通常包含在调用处
+		// 这里简化处理，使用 unpack7Bit 的默认长度
+		return Decode7Bit(bytes, (len(bytes)*8)/7)
+	}
+
+	// BCD 编码的电话号码，需要交换半字节
 	swapped := SwapNibbles(data)
+	// 移除填充的 F（可能在末尾）
 	swapped = strings.TrimSuffix(swapped, "F")
 
 	if addrType == AddressTypeInternational {
