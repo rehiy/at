@@ -20,6 +20,15 @@ type Port interface {
 	Close() error
 }
 
+// 结束符
+var Terminators = []string{
+	"\r\n", // 标准结束符 (CRLF)
+	"\n",   // 换行符 (LF)
+	"\r",   // 回车符 (CR)
+	"\x1A", // Ctrl+Z (短信发送确认)
+	"\x1B", // ESC (取消输入)
+}
+
 // 配置参数
 type Config struct {
 	Timeout         time.Duration        // 超时时间
@@ -41,6 +50,7 @@ type Device struct {
 	urcHandler    UrcHandler           // 通知处理函数
 	printf        func(string, ...any) // 日志输出函数
 	closed        atomic.Bool          // 连接是否已关闭（原子操作保证并发安全）
+	wg            sync.WaitGroup       // 等待 goroutine 退出
 	mu            sync.Mutex           // 保护命令发送的互斥锁
 }
 
@@ -48,7 +58,7 @@ type Device struct {
 type UrcHandler func(string, map[int]string)
 
 // New 创建一个新的设备连接实例
-func New(port Port, handler UrcHandler, config *Config) (*Device, error) {
+func New(port Port, handler UrcHandler, config *Config) *Device {
 	if config == nil {
 		config = &Config{}
 	}
@@ -80,9 +90,10 @@ func New(port Port, handler UrcHandler, config *Config) (*Device, error) {
 	}
 
 	// 开始读取循环
+	dev.wg.Add(1)
 	go dev.readLoop()
 
-	return dev, nil
+	return dev
 }
 
 // IsOpen 链接状态
@@ -98,27 +109,47 @@ func (m *Device) Close() error {
 		return nil // 已经关闭过了
 	}
 
-	// 关闭响应通道
+	// 关闭响应通道，让 readLoop 退出
 	close(m.responseChan)
+
+	// 等待 goroutine 退出
+	m.wg.Wait()
 
 	return m.port.Close()
 }
 
-// SendCommand 发送 AT 命令并等待响应
+// SendCommand 发送命令并等待响应
 func (m *Device) SendCommand(cmd string) ([]string, error) {
 	if m.closed.Load() {
 		return nil, fmt.Errorf("device closed")
 	}
 
-	// 添加回车换行符并写入命令
-	if err := m.writeString(cmd + "\r\n"); err != nil {
+	// 清空响应通道，避免收到残留响应
+	for len(m.responseChan) > 0 {
+		<-m.responseChan
+	}
+
+	// 检查命令是否已包含结束符，避免重复添加
+	hasTerminator := false
+	for _, item := range Terminators {
+		if strings.HasSuffix(cmd, item) {
+			hasTerminator = true
+			break
+		}
+	}
+	if !hasTerminator {
+		cmd = cmd + Terminators[0]
+	}
+
+	// 向串口写入命令
+	if err := m.writeString(cmd); err != nil {
 		return nil, err
 	}
 
 	return m.readResponse()
 }
 
-// SendCommandExpect 发送 AT 命令并期望特定响应
+// SendCommandExpect 发送命令并期望特定响应
 func (m *Device) SendCommandExpect(cmd string, expected string) error {
 	responses, err := m.SendCommand(cmd)
 	if err != nil {
@@ -162,6 +193,8 @@ func (m *Device) readResponse() ([]string, error) {
 
 // readLoop 从串口读取数据并分发
 func (m *Device) readLoop() {
+	defer m.wg.Done()
+
 	reader := bufio.NewReader(m.port)
 	for {
 		if m.closed.Load() {
@@ -211,13 +244,7 @@ func (m *Device) writeString(data string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 刷新缓冲区
-	m.port.Flush()
-	for len(m.responseChan) > 0 {
-		<-m.responseChan
-	}
-
-	// 写入数据
+	// 向串口写入数据
 	n, err := m.port.Write([]byte(data))
 	if err != nil {
 		return fmt.Errorf("failed to write to port: %w", err)
