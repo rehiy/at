@@ -50,7 +50,6 @@ type Device struct {
 	urcHandler    UrcHandler           // 通知处理函数
 	printf        func(string, ...any) // 日志输出函数
 	closed        atomic.Bool          // 连接是否已关闭（原子操作保证并发安全）
-	wg            sync.WaitGroup       // 等待 goroutine 退出
 	mu            sync.Mutex           // 保护命令发送的互斥锁
 }
 
@@ -90,8 +89,7 @@ func New(port Port, handler UrcHandler, config *Config) *Device {
 	}
 
 	// 开始读取循环
-	dev.wg.Add(1)
-	go dev.readLoop()
+	go dev.readAndDispatch()
 
 	return dev
 }
@@ -104,16 +102,11 @@ func (m *Device) IsOpen() bool {
 // Close 关闭连接
 func (m *Device) Close() error {
 	m.printf("closing device")
-
 	if m.closed.Swap(true) {
 		return nil // 已经关闭过了
 	}
 
-	// 关闭响应通道，让 readLoop 退出
 	close(m.responseChan)
-
-	// 等待 goroutine 退出
-	m.wg.Wait()
 
 	return m.port.Close()
 }
@@ -191,10 +184,8 @@ func (m *Device) readResponse() ([]string, error) {
 
 // ===== 原生读写 =====
 
-// readLoop 从串口读取数据并分发
-func (m *Device) readLoop() {
-	defer m.wg.Done()
-
+// readAndDispatch 从串口读取数据并分发
+func (m *Device) readAndDispatch() {
 	reader := bufio.NewReader(m.port)
 	for {
 		if m.closed.Load() {
@@ -215,6 +206,8 @@ func (m *Device) readLoop() {
 		if line == "" {
 			continue
 		}
+
+		m.printf("read line: %s", line)
 
 		// 处理通知消息
 		if m.notifications.IsNotification(line) {
@@ -244,10 +237,12 @@ func (m *Device) writeString(data string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	m.printf("write str: %s", data)
+
 	// 向串口写入数据
 	n, err := m.port.Write([]byte(data))
 	if err != nil {
-		return fmt.Errorf("failed to write to port: %w", err)
+		return fmt.Errorf("failed to write: %w", err)
 	}
 	if n != len(data) {
 		return fmt.Errorf("incomplete write: wrote %d of %d bytes", n, len(data))

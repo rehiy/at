@@ -3,6 +3,7 @@ package at
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/rehiy/modem/pdu"
 )
@@ -27,7 +28,8 @@ func (s *SMS) ToJSON() map[string]any {
 
 // ListSMS 获取短信列表。
 func (m *Device) ListSMS() ([]SMS, error) {
-	responses, err := m.SendCommand("AT+CMGL=4")
+	cmd := fmt.Sprintf("%s=%d", m.commands.ListSMS, 4)
+	responses, err := m.SendCommand(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +46,7 @@ func (m *Device) ListSMS() ([]SMS, error) {
 		}
 
 		if i >= l {
-			break // PDU 数据在下一行，如果下一行不存在，则退出
+			break // 下一行找不到 PDU 数据，退出
 		}
 
 		pduHex := responses[i]
@@ -61,6 +63,7 @@ func (m *Device) ListSMS() ([]SMS, error) {
 			m.printf("concat sms %s error: %v", param[0], err)
 			continue
 		}
+
 		if sms != nil {
 			result = append(result, SMS{
 				Message: *sms,
@@ -87,24 +90,32 @@ func (m *Device) SendSMS(number, message string) error {
 		return err
 	}
 
+	timeout := m.timeout
+	m.timeout = time.Second * 15
+
 	for _, p := range pdus {
-		err = m.SendCommandExpect(fmt.Sprintf("AT+CMGS=%d", p.Length), ">")
+		cmd := fmt.Sprintf("%s=%d", m.commands.SendSMS, p.Length)
+		err = m.SendCommandExpect(cmd, ">")
 		if err != nil {
+			m.printf("send sms command error: %v", err)
 			return err
 		}
 
-		err = m.writeString(p.Data + "\x1A")
+		_, err = m.SendCommand(p.Data + "\x1A")
 		if err != nil {
+			m.printf("send sms response error: %v", err)
 			return err
 		}
 	}
 
+	m.timeout = timeout
 	return nil
 }
 
 // DeleteSMS 删除指定索引的短信。
 func (m *Device) DeleteSMS(index int) error {
-	_, err := m.SendCommand(fmt.Sprintf("AT+CMGD=%d", index))
+	cmd := fmt.Sprintf("%s=%d", m.commands.DeleteSMS, index)
+	_, err := m.SendCommand(cmd)
 	return err
 }
 

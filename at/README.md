@@ -326,7 +326,7 @@ config := &at.Config{
 
 ### 通信流程
 
-1. **读取循环** (`readLoop`): 持续从串口读取数据
+1. **读取循环** (`readAndDispatch`): 持续从串口读取数据
    - 去除空白字符
    - 识别 URC 通知，交由 `urcHandler` 处理
    - 其他数据写入响应通道
@@ -345,8 +345,7 @@ config := &at.Config{
 ### 并发安全
 
 - `closed`: 使用 `atomic.Bool` 保证原子操作
-- `wg`: 使用 `sync.WaitGroup` 等待 goroutine 退出
-- `mu`: 互斥锁保护命令发送
+- `mu`: 使用互斥锁保护命令发送
 - 响应通道: 带缓冲的通道（容量 100）
 
 ## 依赖
