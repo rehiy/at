@@ -243,18 +243,18 @@ type SMS struct {
 ```go
 urcHandler := func(label string, param map[int]string) {
     switch label {
-    case "+CMTI:": // 新短信通知
+    case "+CMTI": // 新短信通知
         index := param[0]
         log.Println("收到新短信，索引:", index)
 
     case "RING": // 来电
         log.Println("电话响铃")
 
-    case "+CLIP:": // 来电显示
+    case "+CLIP": // 来电显示
         number := param[0]
         log.Println("来电号码:", number)
 
-    case "+CREG:": // 网络状态变化
+    case "+CREG": // 网络状态变化
         stat := param[1]
         log.Println("网络状态:", stat)
     }
@@ -266,12 +266,12 @@ urcHandler := func(label string, param map[int]string) {
 | 通知类型 | 说明 |
 |---------|------|
 | `RING` | 来电响铃 |
-| `+CLIP:` | 来电显示 |
-| `+CMTI:` | 新短信到达 |
-| `+CMT:` | 短信内容推送 |
-| `+CREG:` | 网络注册状态 |
-| `+CGREG:` | GPRS 注册状态 |
-| `+CIEV:` | 设备状态变化 |
+| `+CLIP` | 来电显示 |
+| `+CMTI` | 新短信到达 |
+| `+CMT` | 短信内容推送 |
+| `+CREG` | 网络注册状态 |
+| `+CGREG` | GPRS 注册状态 |
+| `+CIEV` | 设备状态变化 |
 
 ## 高级配置
 
@@ -305,12 +305,13 @@ config := &at.Config{
 
 ### 自定义通知集
 
-适配特定厂商的 URC 格式：
+适配特定厂商的 URC 格式（厂商前缀可能不同）：
 
 ```go
 notifications := at.DefaultNotificationSet()
-notifications.NetworkReg = "^CREG:"
-notifications.StatusChange = "^CIEV:"
+// 某些厂商可能在 URC 前缀前添加厂商标识
+notifications.NetworkReg = "^CREG"
+notifications.IndicationEvent = "^CIEV"
 
 config := &at.Config{
     NotificationSet: &notifications,

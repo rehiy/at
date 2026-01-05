@@ -1,31 +1,32 @@
 package at
 
 import (
+	"reflect"
 	"strings"
 )
 
 // ResponseSet 定义可配置的命令最终响应类型集合
 type ResponseSet struct {
 	// 基本响应
-	OK    string // 成功响应
-	Error string // 错误响应
+	OK    string // OK - 成功响应
+	Error string // ERROR - 通用错误响应
 
-	// 通话相关
-	NoCarrier  string // 无载波
-	NoAnswer   string // 无应答
-	NoDialtone string // 无拨号音
-	Busy       string // 忙线
-	Connect    string // 连接成功
+	// 通话/连接相关结果码
+	NoCarrier  string // NO CARRIER - 无载波/连接丢失
+	NoAnswer   string // NO ANSWER - 无应答
+	NoDialtone string // NO DIALTONE - 无拨号音
+	Busy       string // BUSY - 对方忙线
+	Connect    string // CONNECT - 连接成功（可能附带速度如 "CONNECT 9600"）
 
-	// 错误相关
-	CMEError string // CME 错误（设备错误）
-	CMSError string // CMS 错误（短信服务错误）
+	// 错误响应
+	CMEError string // +CME ERROR - 移动设备错误
+	CMSError string // +CMS ERROR - 短信服务错误
 
 	// 提示符
-	Prompt string // 输入提示符（如 SMS 的 ">"）
+	Prompt string // > - 短信输入提示符
 
-	// 自定义响应
-	CustomFinal []string // 自定义最终响应列表
+	// 自定义响应（厂商扩展）
+	CustomFinal []string // 自定义最终响应列表（非标准）
 }
 
 // DefaultResponseSet 返回默认的命令响应类型集合
@@ -35,16 +36,16 @@ func DefaultResponseSet() *ResponseSet {
 		OK:    "OK",
 		Error: "ERROR",
 
-		// 通话相关
+		// 通话/连接相关结果码
 		NoCarrier:  "NO CARRIER",
 		NoAnswer:   "NO ANSWER",
 		NoDialtone: "NO DIALTONE",
 		Busy:       "BUSY",
 		Connect:    "CONNECT",
 
-		// 错误相关
-		CMEError: "+CME ERROR:",
-		CMSError: "+CMS ERROR:",
+		// 错误响应
+		CMEError: "+CME ERROR",
+		CMSError: "+CMS ERROR",
 
 		// 提示符
 		Prompt: ">",
@@ -56,26 +57,21 @@ func DefaultResponseSet() *ResponseSet {
 
 // GetAllResponses 返回所有最终响应的列表
 func (rs *ResponseSet) GetAllResponses() []string {
-	responses := []string{
-		// 基本响应
-		rs.OK,
-		rs.Error,
+	v := reflect.ValueOf(rs).Elem()
 
-		// 通话相关
-		rs.NoCarrier,
-		rs.NoAnswer,
-		rs.NoDialtone,
-		rs.Busy,
-		rs.Connect,
-
-		// 错误相关
-		rs.CMEError,
-		rs.CMSError,
-
-		// 提示符
-		rs.Prompt,
+	responses := []string{}
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		// 处理字符串类型字段（不包括 CustomFinal 切片）
+		if field.Kind() == reflect.String {
+			value := field.String()
+			if value != "" {
+				responses = append(responses, value)
+			}
+		}
 	}
-	// 添加自定义最终响应
+
+	// 添加自定义最终响应列表
 	return append(responses, rs.CustomFinal...)
 }
 

@@ -35,7 +35,7 @@ func (m *Device) SendSMSPdu(number, message string) error {
 
 	// 临时延长超时
 	rdTimeout := m.timeout
-	m.timeout = time.Second * 15
+	m.timeout = time.Second * 60
 	defer func() { m.timeout = rdTimeout }()
 
 	for _, p := range tpdus {
