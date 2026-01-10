@@ -150,7 +150,9 @@ func (m *Device) ListSMSPdu(stat int) ([]SMS, error) {
 		}
 	}
 
-	sort.Slice(result, func(i, j int) bool { return result[i].Index < result[j].Index })
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Index > result[j].Index
+	})
 	return result, nil
 }
 
